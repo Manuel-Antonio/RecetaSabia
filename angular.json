@@ -94,5 +94,12 @@
         }
       }
     }
+  },
+  "scripts": [
+    "./node_modules/html2pdf.js/dist/html2pdf.js",
+    "./node_modules/html2canvas/dist/html2canvas.js"
+  ],
+  "cli": {
+    "analytics": false
   }
 }
