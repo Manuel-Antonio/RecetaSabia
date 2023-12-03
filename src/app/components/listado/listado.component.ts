@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, HostBinding, OnInit, ViewChild } from '@angular/core';
 import { categorias } from 'src/app/data/categorias';
 import { Categoria } from 'src/app/models/categoria';
 import { productos } from 'src/app/data/productos';
@@ -9,6 +9,7 @@ import * as jspdf from 'jspdf';
 import html2canvas from 'html2canvas';
 
 import { FormBuilder, FormGroup } from '@angular/forms';
+import { DbService } from 'src/app/services/db.service';
 
 @Component({
   selector: 'app-listado',
@@ -16,7 +17,9 @@ import { FormBuilder, FormGroup } from '@angular/forms';
   styleUrls: ['./listado.component.css']
 })
 export class ListadoComponent implements OnInit {
-  
+  oscuroColor = 'bg-indigo-800';
+  whiteColor = 'bg-white';
+
   categoriasList: Categoria[] = [];
   productosList: Producto[] = [];
   producto: Producto = {};
@@ -30,20 +33,46 @@ export class ListadoComponent implements OnInit {
   pagos = [];
   pagoNombre = "";
   pagoDireccion = "";
-  constructor(private globalService: GlobalService) { }
+  pagoNumeroTarjeta = "";
+  pagoFechaExpiracion = "";
+  pagoCodigoSeguridad = "";
+  darkMode = false;
+  isActive: boolean = true;
+
+  handleButtonClick() {
+    // Lógica para activar o desactivar el botón
+    this.isActive = !this.isActive;
+  }
+  modoNoche() {
+    this.darkMode != this.darkMode
+  }
+  constructor(private globalService: GlobalService, private db: DbService) {
+    this.loadCart();
+    this.calcularTotalAPagar();
+  }
 
   ngOnInit() {
     this.categoriasList = categorias ?? [];
     this.productosList = productos ?? [];
     this.obtenerCategoriaPorId(1);
+
   }
 
-  isProductCarrito(itemId : any) : boolean {
+  isProductCarrito(itemId: any): boolean {
     let elemento = this.carrito.find(p => p.id == itemId);
-    if(elemento != null) {
+    if (elemento != null) {
       return true;
     }
     return false;
+  }
+
+  saveCart() {
+    localStorage.setItem('cart', JSON.stringify(this.carrito));
+  }
+
+  loadCart() {
+    const cart = localStorage.getItem('cart');
+    this.carrito = cart ? JSON.parse(cart) : [];
   }
 
   obtenerCategoriaPorId(id: any) {
@@ -92,7 +121,7 @@ export class ListadoComponent implements OnInit {
       this.carrito = [...this.carrito, producto] ?? [];
       this.calcularTotalAPagar();
     }
-
+    this.saveCart();
   }
 
   disminuirCantidad(item: any) {
@@ -102,6 +131,7 @@ export class ListadoComponent implements OnInit {
     item.cantidadElegida -= 1;
     this.carrito = this.carrito.map(p => p.id == item.id ? item : p);
     this.calcularTotalAPagar();
+    this.saveCart();
   }
   aumentarCantidad(item: any) {
     if (item.cantidadElegida == 5) {
@@ -110,6 +140,7 @@ export class ListadoComponent implements OnInit {
     item.cantidadElegida += 1;
     this.carrito = this.carrito.map(p => p.id == item.id ? item : p);
     this.calcularTotalAPagar();
+    this.saveCart();
   }
   subtotal(item: any): number {
     return item.precio * item.cantidadElegida;
@@ -117,6 +148,7 @@ export class ListadoComponent implements OnInit {
   eliminarProducto(itemId: any) {
     this.carrito = this.carrito.filter(p => p.id != itemId);
     this.calcularTotalAPagar();
+    this.saveCart();
   }
   calcularTotalAPagar() {
     this.totalPagar = this.carrito.reduce(
@@ -128,14 +160,14 @@ export class ListadoComponent implements OnInit {
   @ViewChild('contenidoPDF', { static: false }) contenidoPDF!: ElementRef;
   descargarPDF(): void {
     const content: HTMLElement | null = this.contenidoPDF?.nativeElement;
-  
+
     if (content) {
       const opcionesCanvas = {
         scale: 2,
         useCORS: true,
         logging: true
       };
-  
+
       html2canvas(content, opcionesCanvas).then((canvas: HTMLCanvasElement) => {
         // Configura el tamaño del PDF
         const pdf = new jspdf.jsPDF({
@@ -144,26 +176,26 @@ export class ListadoComponent implements OnInit {
           format: 'a4',
           compress: true
         });
-  
+
         // Ajusta las dimensiones del canvas de acuerdo con las dimensiones reales del contenido
         const canvasWidth = content.offsetWidth;
         const canvasHeight = content.offsetHeight;
-  
+
         // Calcula la relación de aspecto de la imagen
         const aspectRatio = canvasWidth / canvasHeight;
-  
+
         // Establece el alto del PDF en la altura total de la página y calcula el ancho en base al aspectRatio
         const pdfHeight = pdf.internal.pageSize.getHeight() - 20; // Reduzco 20 mm para tener margen
         const pdfWidth = pdfHeight * aspectRatio;
-  
+
         // Calcula la posición para centrar horizontalmente
         const offsetX = (pdf.internal.pageSize.getWidth() - pdfWidth) / 2;
         const offsetY = 10; // Supongamos que la posición vertical superior es 10 mm
-  
+
         // Convierte el canvas a una imagen y la añade al PDF (primera página)
         const imgData = canvas.toDataURL('image/png');
         pdf.addImage(imgData, 'PNG', offsetX, offsetY, pdfWidth, pdfHeight);
-  
+
         // Descarga el PDF
         pdf.save(`Receta - ${this.producto.nombre}.pdf`);
       });
@@ -172,7 +204,6 @@ export class ListadoComponent implements OnInit {
     }
   }
 
-
   resetear() {
     // Realiza acciones necesarias con this.myForm.value
     this.carrito = [];
@@ -180,5 +211,23 @@ export class ListadoComponent implements OnInit {
     this.pagoNombre = "";
     this.pagoDireccion = "";
 
+    this.guardarPago();
+    this.saveCart();
   }
+
+  
+  guardarPago() {
+    // Guardar pago
+    this.db.addPago({
+      nombre: this.pagoNombre,
+      direccion: this.pagoDireccion,
+      nroTarjeta: "**** **** **** ****",
+      codigoSeguridad: "***",
+      fecha: "**/**",
+      total: this.totalPagar,
+      items: this.carrito
+    })
+
+  }
+
 }
